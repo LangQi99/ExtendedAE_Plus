@@ -107,15 +107,18 @@ public abstract class ContainerPatternEncodingTermMenuMixin implements IActionHo
                 return; // 仅服务器执行
             }
             if (this.eap$consumeShiftUploadFlag()) {
+                sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin: Cancelled by Shift flag"), false);
                 return; // 按下 Shift，不自动上传
             }
             var menu = (PatternEncodingTermMenu) (Object) this;
             if (menu.getMode() != EncodingMode.CRAFTING
                     && menu.getMode() != EncodingMode.SMITHING_TABLE
                     && menu.getMode() != EncodingMode.STONECUTTING) {
-                return; // 只处理合成/锻造台/切石机样板
+                // Not the mode we care about
+                return; 
             }
             if (this.encodedPatternSlot == null) {
+                sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin: encodedPatternSlot is null"), false);
                 return;
             }
             var stack = this.encodedPatternSlot.getItem();
@@ -127,6 +130,7 @@ public abstract class ContainerPatternEncodingTermMenuMixin implements IActionHo
             }
             // 为避免与 AE2 后续同步竞争，切到下一 tick 执行
             final ItemStack patternCopy = stack.copy();
+            sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin: Scheduling Matrix upload & Simulation..."), false);
             sp.server.execute(() -> {
                 try {
                     MatrixUploadUtil.uploadFromEncodingMenuToMatrix(sp, menu);
@@ -134,8 +138,11 @@ public abstract class ContainerPatternEncodingTermMenuMixin implements IActionHo
                     IGridNode node = menu.getNetworkNode();
                     if (node != null && node.getGrid() != null) {
                         PostUploadCraftingSimulationUtil.simulateAfterUpload(sp, patternCopy, node.getGrid());
+                    } else {
+                        sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin: Node or Grid is null"), false);
                     }
-                } catch (Throwable ignored) {
+                } catch (Throwable e) {
+                    sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin error: " + e.getMessage()), false);
                 }
             });
         } catch (Throwable ignored) {

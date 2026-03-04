@@ -38,49 +38,79 @@ public final class PostUploadCraftingSimulationUtil {
      * @param grid    AE 网络
      */
     public static void simulateAfterUpload(ServerPlayer player, ItemStack pattern, IGrid grid) {
-        if (player == null || pattern == null || pattern.isEmpty() || grid == null) return;
+        if (player != null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Entered simulateAfterUpload"), false);
+        }
+        if (player == null || pattern == null || pattern.isEmpty() || grid == null) {
+            if (player != null) player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Early return: param is null or empty"), false);
+            return;
+        }
 
         IPatternDetails details;
         try {
             details = PatternDetailsHelper.decodePattern(pattern, player.level());
         } catch (Throwable t) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Exception decoding pattern: " + t.getMessage()), false);
             return;
         }
-        if (details == null) return;
+        if (details == null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] details is null"), false);
+            return;
+        }
 
         GenericStack primaryOutput = details.getPrimaryOutput();
-        if (primaryOutput == null) return;
+        if (primaryOutput == null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] primaryOutput is null"), false);
+            return;
+        }
 
         AEKey outputKey = primaryOutput.what();
-        if (outputKey == null) return;
+        if (outputKey == null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] outputKey is null"), false);
+            return;
+        }
 
         var craftingService = grid.getCraftingService();
-        if (!craftingService.isCraftable(outputKey)) return;
+        if (!craftingService.isCraftable(outputKey)) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] isCraftable returned false for " + outputKey), false);
+            return;
+        }
 
         try {
-            craftingService.beginCraftingCalculation(
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Starting crafting calculation..."), false);
+            var futurePlan = craftingService.beginCraftingCalculation(
                     player.serverLevel(),
-                    new ICraftingSimulationRequester() {
-                        @Override
-                        public IActionSource getActionSource() {
-                            return new PlayerSource(player);
-                        }
-
-                        @Override
-                        public void setCalculationResult(CraftingPlan plan) {
-                            player.server.execute(() -> {
-                                try {
-                                    handlePlanResult(player, plan);
-                                } catch (Throwable ignored) {
-                                }
-                            });
-                        }
-                    },
+                    () -> new PlayerSource(player),
                     outputKey,
                     1L,
                     CalculationStrategy.CRAFT_LESS
             );
-        } catch (Throwable ignored) {
+
+            // 异步等待结果并在服务器主线程处理
+            java.util.concurrent.CompletableFuture.supplyAsync(() -> {
+                try {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Waiting for calculation..."), false);
+                    return futurePlan.get(); // 阻塞等待计算完成
+                } catch (Exception e) {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Calculation interrupted/failed: " + e.getMessage()), false);
+                    return null;
+                }
+            }).thenAcceptAsync(plan -> {
+                if (plan != null && plan instanceof CraftingPlan craftingPlan) {
+                    player.server.execute(() -> {
+                        try {
+                            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Handling calculation result..."), false);
+                            handlePlanResult(player, craftingPlan);
+                        } catch (Throwable e) {
+                            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Error handling result: " + e.getMessage()), false);
+                        }
+                    });
+                } else {
+                    player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Plan was null or not CraftingPlan"), false);
+                }
+            });
+        } catch (Throwable e) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Sync catch an error: " + e.getMessage()), false);
         }
     }
 

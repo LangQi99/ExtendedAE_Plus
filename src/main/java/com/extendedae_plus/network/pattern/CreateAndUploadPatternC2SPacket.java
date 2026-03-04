@@ -147,11 +147,13 @@ public class CreateAndUploadPatternC2SPacket {
 
             if (!uploaded) {
                 // 上传失败，将样板塞到背包。
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] C2S: Pattern upload to Matrix failed"), false);
                 if (!(player.getInventory().add(pattern))) {
                     player.drop(pattern.copy(),false);
                 }
             } else {
                 // 上传成功，执行合成模拟：材料不足时将缺失材料添加到JEI书签
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] C2S: Pattern upload to Matrix succeeded. Calling simulateAfterUpload..."), false);
                 PostUploadCraftingSimulationUtil.simulateAfterUpload(player, pattern, grid);
             }
         });
