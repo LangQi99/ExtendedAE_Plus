@@ -107,15 +107,21 @@ public final class ProviderUploadUtil {
 
         if (remaining.getCount() < itemToInsert.getCount()) {
             // 插入成功（部分或全部）
-            int insertedCount = itemToInsert.getCount() - remaining.getCount();
-            playerItem.shrink(insertedCount);
+            int inserted = itemToInsert.getCount() - remaining.getCount();
+            playerItem.shrink(inserted);
 
             if (playerItem.isEmpty()) {
                 player.getInventory().setItem(playerSlotIndex, ItemStack.EMPTY);
             }
 
             String terminalType = PatternTerminalUtil.isExtendedAETerminal(player) ? "扩展样板管理终端" : "样板访问终端";
-            sendMessage(player, "ExtendedAE Plus: 通过" + terminalType + "成功上传 " + insertedCount + " 个样板");
+            sendMessage(player, "ExtendedAE Plus: 通过" + terminalType + "成功上传 " + inserted + " 个样板");
+
+            // 上传成功后触发合成模拟
+            IGrid grid = findPlayerGrid(player);
+            if (grid != null) {
+                PostUploadCraftingSimulationUtil.simulateAfterUpload(player, itemToInsert, grid);
+            }
             return true;
         } else {
             sendMessage(player, "ExtendedAE Plus: 上传失败 - 样板供应器已满或样板无效");
@@ -175,6 +181,11 @@ public final class ProviderUploadUtil {
                 } else {
                     encodedSlot.set(stack);
                 }
+                // 上传成功后触发合成模拟
+                IGridNode node = menu.getNetworkNode();
+                if (node != null && node.getGrid() != null) {
+                    PostUploadCraftingSimulationUtil.simulateAfterUpload(player, toInsert, node.getGrid());
+                }
                 return true;
             }
         }
@@ -226,6 +237,11 @@ public final class ProviderUploadUtil {
                     encodedSlot.set(ItemStack.EMPTY);
                 } else {
                     encodedSlot.set(stack);
+                }
+                // 上传成功后触发合成模拟
+                IGridNode node = menu.getNetworkNode();
+                if (node != null && node.getGrid() != null) {
+                    PostUploadCraftingSimulationUtil.simulateAfterUpload(player, toInsert, node.getGrid());
                 }
                 return true;
             }
