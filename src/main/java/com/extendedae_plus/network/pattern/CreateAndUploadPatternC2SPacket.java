@@ -152,9 +152,8 @@ public class CreateAndUploadPatternC2SPacket {
                     player.drop(pattern.copy(),false);
                 }
             } else {
-                // 上传成功，执行合成模拟：材料不足时将缺失材料添加到JEI书签
-                player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] C2S: Pattern upload to Matrix succeeded. Calling simulateAfterUpload..."), false);
-                PostUploadCraftingSimulationUtil.simulateAfterUpload(player, pattern, grid);
+                // 上传成功，MatrixUploadUtil 内部会触发模拟
+                player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] C2S: Pattern upload to Matrix succeeded."), false);
             }
         });
         ctx.setPacketHandled(true);

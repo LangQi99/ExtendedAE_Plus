@@ -134,13 +134,6 @@ public abstract class ContainerPatternEncodingTermMenuMixin implements IActionHo
             sp.server.execute(() -> {
                 try {
                     MatrixUploadUtil.uploadFromEncodingMenuToMatrix(sp, menu);
-                    // 上传后执行合成模拟：材料不足时将缺失材料添加到JEI书签
-                    IGridNode node = menu.getNetworkNode();
-                    if (node != null && node.getGrid() != null) {
-                        PostUploadCraftingSimulationUtil.simulateAfterUpload(sp, patternCopy, node.getGrid());
-                    } else {
-                        sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin: Node or Grid is null"), false);
-                    }
                 } catch (Throwable e) {
                     sp.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Mixin error: " + e.getMessage()), false);
                 }

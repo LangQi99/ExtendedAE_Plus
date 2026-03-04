@@ -42,6 +42,9 @@ public final class MatrixUploadUtil {
      * @param menu   PatternEncodingTermMenu
      */
     public static void uploadFromEncodingMenuToMatrix(ServerPlayer player, PatternEncodingTermMenu menu) {
+        if (player != null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[MatrixUploadUtil] Entered uploadFromEncodingMenuToMatrix"), false);
+        }
         if (player == null || menu == null) return;
         // 读取已编码槽位的物品
         RestrictedInputSlot encodedSlot = ((PatternEncodingTermMenuAccessor) menu).eap$getEncodedPatternSlot();
@@ -83,6 +86,8 @@ public final class MatrixUploadUtil {
             ItemStack remain = inv.addItems(toInsert);
             if (remain.getCount() < stackCount) {
                 completeUploadSuccess(player, encodedSlot, stack, remain);
+                // 上传成功后触发模拟
+                PostUploadCraftingSimulationUtil.simulateAfterUpload(player, stack, grid);
                 return;
             }
         }
@@ -96,6 +101,9 @@ public final class MatrixUploadUtil {
      * @return 是否上传成功
      */
     public static boolean uploadPatternToMatrix(ServerPlayer player, ItemStack pattern, IGrid grid) {
+        if (player != null) {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[MatrixUploadUtil] Entered uploadPatternToMatrix"), false);
+        }
         if (player == null || pattern.isEmpty() || grid == null) {
             return false;
         }
@@ -132,6 +140,8 @@ public final class MatrixUploadUtil {
             if (remain.getCount() < pattern.getCount()) {
                 // 上传成功
                 sendPlayerMessage(player, Component.translatable("extendedae_plus.upload_to_matrix.success"));
+                // 上传成功后触发模拟
+                PostUploadCraftingSimulationUtil.simulateAfterUpload(player, pattern, grid);
                 return true;
             }
         }

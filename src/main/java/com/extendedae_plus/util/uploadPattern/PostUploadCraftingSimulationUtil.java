@@ -77,7 +77,7 @@ public final class PostUploadCraftingSimulationUtil {
         }
 
         try {
-            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Starting crafting calculation..."), false);
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] Starting crafting calculation for: " + outputKey.getDisplayName().getString()), false);
             var futurePlan = craftingService.beginCraftingCalculation(
                     player.serverLevel(),
                     () -> new PlayerSource(player),
@@ -131,10 +131,19 @@ public final class PostUploadCraftingSimulationUtil {
         }
 
         if (!missingItems.isEmpty()) {
+            StringBuilder sb = new StringBuilder("[PostUpload] Missing items: ");
+            for (int i = 0; i < missingItems.size(); i++) {
+                sb.append(missingItems.get(i).getHoverName().getString());
+                if (i < missingItems.size() - 1) sb.append(", ");
+            }
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal(sb.toString()), false);
+
             ModNetwork.CHANNEL.send(
                     PacketDistributor.PLAYER.with(() -> player),
                     new AddJeiBookmarksS2CPacket(missingItems)
             );
+        } else {
+            player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PostUpload] All materials are available."), false);
         }
         // 若 missingItems 为空说明材料充足，不执行任何操作（不合成、不提示）
     }
