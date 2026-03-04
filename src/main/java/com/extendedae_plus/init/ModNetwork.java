@@ -2,6 +2,7 @@ package com.extendedae_plus.init;
 
 import com.extendedae_plus.ExtendedAEPlus;
 import com.extendedae_plus.network.*;
+import com.extendedae_plus.network.crafting.AddJeiBookmarksS2CPacket;
 import com.extendedae_plus.network.crafting.CraftingMonitorJumpC2SPacket;
 import com.extendedae_plus.network.crafting.CraftingMonitorOpenProviderC2SPacket;
 import com.extendedae_plus.network.crafting.OpenCraftFromJeiC2SPacket;
@@ -188,6 +189,12 @@ public final class ModNetwork {
                 .encoder(CancelPendingPatternC2SPacket::encode)
                 .decoder(CancelPendingPatternC2SPacket::decode)
                 .consumerNetworkThread(CancelPendingPatternC2SPacket::handle)
+                .add();
+
+        CHANNEL.messageBuilder(AddJeiBookmarksS2CPacket.class, nextId(), NetworkDirection.PLAY_TO_CLIENT)
+                .encoder(AddJeiBookmarksS2CPacket::encode)
+                .decoder(AddJeiBookmarksS2CPacket::decode)
+                .consumerNetworkThread(AddJeiBookmarksS2CPacket::handle)
                 .add();
     }
 
