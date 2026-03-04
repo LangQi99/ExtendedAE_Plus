@@ -1,11 +1,13 @@
 package com.extendedae_plus.mixin.ae2.menu;
 
 import appeng.api.crafting.PatternDetailsHelper;
+import appeng.api.networking.IGridNode;
 import appeng.menu.me.items.PatternEncodingTermMenu;
 import appeng.menu.slot.RestrictedInputSlot;
 import appeng.parts.encoding.EncodingMode;
 import com.extendedae_plus.api.upload.IPatternEncodingShiftUploadSync;
 import com.extendedae_plus.util.uploadPattern.MatrixUploadUtil;
+import com.extendedae_plus.util.uploadPattern.PostUploadCraftingSimulationUtil;
 import com.glodblock.github.glodium.network.packet.sync.IActionHolder;
 import com.glodblock.github.glodium.network.packet.sync.Paras;
 import net.minecraft.server.level.ServerPlayer;
@@ -124,9 +126,15 @@ public abstract class ContainerPatternEncodingTermMenuMixin implements IActionHo
                 return; // 不是编码样板
             }
             // 为避免与 AE2 后续同步竞争，切到下一 tick 执行
+            final ItemStack patternCopy = stack.copy();
             sp.server.execute(() -> {
                 try {
                     MatrixUploadUtil.uploadFromEncodingMenuToMatrix(sp, menu);
+                    // 上传后执行合成模拟：材料不足时将缺失材料添加到JEI书签
+                    IGridNode node = menu.getNetworkNode();
+                    if (node != null && node.getGrid() != null) {
+                        PostUploadCraftingSimulationUtil.simulateAfterUpload(sp, patternCopy, node.getGrid());
+                    }
                 } catch (Throwable ignored) {
                 }
             });

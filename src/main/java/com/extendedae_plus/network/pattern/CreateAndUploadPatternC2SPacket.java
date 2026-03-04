@@ -13,6 +13,7 @@ import appeng.items.tools.powered.WirelessCraftingTerminalItem;
 import appeng.items.tools.powered.WirelessTerminalItem;
 import appeng.me.helpers.PlayerSource;
 import com.extendedae_plus.util.uploadPattern.MatrixUploadUtil;
+import com.extendedae_plus.util.uploadPattern.PostUploadCraftingSimulationUtil;
 import com.extendedae_plus.util.wireless.WirelessTerminalLocator;
 import de.mari_023.ae2wtlib.terminal.WTMenuHost;
 import de.mari_023.ae2wtlib.wut.WTDefinition;
@@ -149,6 +150,9 @@ public class CreateAndUploadPatternC2SPacket {
                 if (!(player.getInventory().add(pattern))) {
                     player.drop(pattern.copy(),false);
                 }
+            } else {
+                // 上传成功，执行合成模拟：材料不足时将缺失材料添加到JEI书签
+                PostUploadCraftingSimulationUtil.simulateAfterUpload(player, pattern, grid);
             }
         });
         ctx.setPacketHandled(true);
