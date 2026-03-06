@@ -82,6 +82,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     @Unique private int lastScroll = Integer.MIN_VALUE;
     @Unique private int lastRowsSize = Integer.MIN_VALUE;
     @Unique private int lastVisibleRows = Integer.MIN_VALUE;
+    @Unique private Map<Long, Integer> eap$slotsToShowMap = new HashMap<>();
 
     public GuiExPatternTerminalMixin(AEBaseMenu menu, Inventory playerInventory, Component title, ScreenStyle style) {
         super(menu, playerInventory, title, style);
@@ -260,7 +261,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
             try {
                 HashMap<Integer, HighlightButton> newHighlightBtns = new HashMap<>();
                 ArrayList<Object> newRows = new ArrayList<>();
-                Map<PatternContainerRecord, Integer> slotsToShowMap = new HashMap<>();
+                this.eap$slotsToShowMap.clear();
                 
                 @SuppressWarnings("unchecked")
                 ArrayList<Object> typedRows = (ArrayList<Object>) rows;
@@ -284,8 +285,9 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                         try {
                             GuiExPatternTerminalSlotsRowAccessor accessor = (GuiExPatternTerminalSlotsRowAccessor) row;
                             PatternContainerRecord container = accessor.getContainer();
+                            Long serverId = container.getServerId();
                             
-                            Integer slotsToShow = slotsToShowMap.get(container);
+                            Integer slotsToShow = this.eap$slotsToShowMap.get(serverId);
                             if (slotsToShow == null) {
                                 var inv = container.getInventory();
                                 int lastNonEmpty = -1;
@@ -295,7 +297,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                                     }
                                 }
                                 slotsToShow = Math.min(inv.size(), lastNonEmpty + 2);
-                                slotsToShowMap.put(container, slotsToShow);
+                                this.eap$slotsToShowMap.put(serverId, slotsToShow);
                                 System.out.println("EAP Debug: Container " + (container != null ? container.getServerId() : "null") + " lastNonEmpty=" + lastNonEmpty + " slotsToShow=" + slotsToShow);
                             }
 
@@ -370,6 +372,37 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
             int currentScroll = scrollbar.getCurrentScroll();
             int rowsSize = rows.size();
             int visRows = this.visibleRows;
+
+            // Handle dynamic auto-expansion
+            if (this.eap$mergeEmptySlots && this.eap$showSlots) {
+                boolean needsRefresh = false;
+                for (Object row : this.rows) {
+                    if (row.getClass().getName().endsWith(".GuiExPatternTerminal$SlotsRow")) {
+                        GuiExPatternTerminalSlotsRowAccessor accessor = (GuiExPatternTerminalSlotsRowAccessor) row;
+                        PatternContainerRecord container = accessor.getContainer();
+                        Long serverId = container.getServerId();
+                        Integer cachedSlots = this.eap$slotsToShowMap.get(serverId);
+                        if (cachedSlots != null) {
+                            var inv = container.getInventory();
+                            int lastNonEmpty = -1;
+                            for (int j = 0; j < inv.size(); j++) {
+                                if (!inv.getStackInSlot(j).isEmpty()) {
+                                    lastNonEmpty = j;
+                                }
+                            }
+                            int currentSlotsToShow = Math.min(inv.size(), lastNonEmpty + 2);
+                            if (currentSlotsToShow != cachedSlots) {
+                                needsRefresh = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (needsRefresh) {
+                    this.eap$slotsToShowMap.clear();
+                    net.minecraft.client.Minecraft.getInstance().execute(this::refreshList);
+                }
+            }
 
             // 当列表或滚动或 visibleRows 发生变化时，重建或清理按钮（按需）
             boolean needFullUpdate = this.buttonsDirty

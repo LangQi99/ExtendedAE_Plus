@@ -110,7 +110,7 @@ public final class ModConfig {
             "样板终端默认是否合并空槽位",
             "开启后只会显示到最后一个有物品的槽位之后的一个空槽位（直到占满供应器所有槽位）"
     })
-    public boolean patternTerminalMergeEmptySlotsDefault = false;
+    public boolean patternTerminalMergeEmptySlotsDefault = true;
 
     @Configurable
     @Configurable.Comment(value = {
