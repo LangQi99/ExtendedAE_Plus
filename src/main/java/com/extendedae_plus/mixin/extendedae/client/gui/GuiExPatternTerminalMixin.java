@@ -38,6 +38,8 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import com.extendedae_plus.mixin.extendedae.accessor.GuiExPatternTerminalSlotsRowAccessor;
+import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Map;
@@ -70,7 +72,9 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     /* ----- eap 自有字段 ----- */
     @Unique private final Map<Integer, Button> openUIButtons = new HashMap<>();
     @Unique private IconButton eap$toggleSlotsButton;
+    @Unique private IconButton eap$mergeEmptySlotsButton;
     @Unique private boolean eap$showSlots = false; // 默认由配置初始化
+    @Unique private boolean eap$mergeEmptySlots = false;
     @Unique private long currentlyChoicePatterProvider = -1; // 当前选择的样板供应器ID
 
     // 按钮更新/缓存状态，避免每帧重建
@@ -184,6 +188,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     private void injectConstructor(CallbackInfo ci) {
         // 初始化默认显示状态
         this.eap$showSlots = ModConfig.INSTANCE.patternTerminalShowSlotsDefault;
+        this.eap$mergeEmptySlots = ModConfig.INSTANCE.patternTerminalMergeEmptySlotsDefault;
 
         // 创建切换槽位显示的按钮（只切换状态并触发一次 refresh）
         this.eap$toggleSlotsButton = new IconButton((b) -> {
@@ -199,11 +204,27 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
             }
         };
 
+        // 创建合并空项按钮（只切换状态并触发一次 refresh）
+        this.eap$mergeEmptySlotsButton = new IconButton((b) -> {
+            this.eap$mergeEmptySlots = !this.eap$mergeEmptySlots;
+            // 标记需要更新按钮与高亮映射
+            this.buttonsDirty = true;
+            this.refreshList();
+            this.resetScrollbar();
+        }) {
+            @Override
+            protected Icon getIcon() {
+                return eap$mergeEmptySlots ? Icon.PATTERN_TERMINAL_NOT_FULL : Icon.PATTERN_TERMINAL_ALL;
+            }
+        };
+
         // 设置按钮提示文本
         this.eap$toggleSlotsButton.setTooltip(Tooltip.create(Component.translatable("gui.expatternprovider.toggle_slots")));
+        this.eap$mergeEmptySlotsButton.setTooltip(Tooltip.create(Component.translatable("gui.expatternprovider.merge_empty_slots")));
 
         // 添加到左侧工具栏
         this.addToLeftToolbar(this.eap$toggleSlotsButton);
+        this.addToLeftToolbar(this.eap$mergeEmptySlotsButton);
     }
 
     @Inject(method = "refreshList", at = @At("HEAD"), remap = false)
@@ -213,6 +234,14 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
             this.eap$toggleSlotsButton.setTooltip(Tooltip.create(Component.translatable(
                     this.eap$showSlots ? "gui.expatternprovider.hide_slots" : "gui.expatternprovider.show_slots"
             )));
+        }
+        if (this.eap$mergeEmptySlotsButton != null) {
+            Component tooltip = Component.translatable(
+                    this.eap$mergeEmptySlots ? "gui.expatternprovider.unmerge_empty_slots" : "gui.expatternprovider.merge_empty_slots"
+            );
+            this.eap$mergeEmptySlotsButton.setTooltip(Tooltip.create(tooltip));
+            // Log translation test
+            System.out.println("EAP Debug: Merge Button Tooltip: " + tooltip.getString() + " (Key: " + ((net.minecraft.network.chat.contents.TranslatableContents)tooltip.getContents()).getKey() + ")");
         }
         // 清理并标记需要重建 UI 按钮（但不在此处做重建）
         this.openUIButtons.values().forEach(this::removeWidget);
@@ -226,49 +255,110 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
      */
     @Inject(method = "refreshList", at = @At("TAIL"), remap = false)
     private void onRefreshListEnd(CallbackInfo ci) {
-        if (!this.eap$showSlots) {
+        System.out.println("EAP Debug: onRefreshListEnd - showSlots=" + eap$showSlots + ", merge=" + eap$mergeEmptySlots);
+        if (!this.eap$showSlots || this.eap$mergeEmptySlots) {
             try {
                 HashMap<Integer, HighlightButton> newHighlightBtns = new HashMap<>();
-                int newIndex = 0;
+                ArrayList<Object> newRows = new ArrayList<>();
+                Map<PatternContainerRecord, Integer> slotsToShowMap = new HashMap<>();
+                
+                @SuppressWarnings("unchecked")
+                ArrayList<Object> typedRows = (ArrayList<Object>) rows;
+                System.out.println("EAP Debug: Initial rows size: " + typedRows.size());
 
-                // 遍历 rows，保留 GroupHeaderRow 并尝试复用 highlightBtns（原 index -> 按钮）
-                for (int i = 0; i < rows.size(); i++) {
-                    Object row = rows.get(i);
-                    String className = row.getClass().getSimpleName();
+                for (int i = 0; i < typedRows.size(); i++) {
+                    Object row = typedRows.get(i);
+                    String fullClassName = row.getClass().getName();
+                    System.out.println("EAP Debug: Processing Row " + i + ": " + fullClassName);
 
-                    if (className.equals("GroupHeaderRow")) {
-                        @SuppressWarnings("unchecked")
-                        ArrayList<Object> typedRows = (ArrayList<Object>) rows;
-                        typedRows.set(newIndex, row);
-
-                        // 原 highlightBtns 在原实现中是放在 GroupHeaderRow 之后第一个 SlotsRow 的 index（i+1）
-                        // 尝试复用原映射中 i+1 的按钮（若存在）
-                        if (highlightBtns.containsKey(i + 1)) {
-                            HighlightButton button = highlightBtns.get(i + 1);
-                            newHighlightBtns.put(newIndex, button);
+                    if (fullClassName.endsWith(".GuiExPatternTerminal$GroupHeaderRow")) {
+                        int headerOldIndex = i;
+                        int headerNewIndex = newRows.size();
+                        newRows.add(row);
+                        
+                        // 逻辑：如果 !eap$showSlots，则 HighlightButton 放于 Header 位置
+                        if (!this.eap$showSlots && highlightBtns.containsKey(headerOldIndex + 1)) {
+                            newHighlightBtns.put(headerNewIndex, highlightBtns.get(headerOldIndex + 1));
                         }
+                    } else if (fullClassName.endsWith(".GuiExPatternTerminal$SlotsRow") && this.eap$showSlots) {
+                        try {
+                            GuiExPatternTerminalSlotsRowAccessor accessor = (GuiExPatternTerminalSlotsRowAccessor) row;
+                            PatternContainerRecord container = accessor.getContainer();
+                            
+                            Integer slotsToShow = slotsToShowMap.get(container);
+                            if (slotsToShow == null) {
+                                var inv = container.getInventory();
+                                int lastNonEmpty = -1;
+                                for (int j = 0; j < inv.size(); j++) {
+                                    if (!inv.getStackInSlot(j).isEmpty()) {
+                                        lastNonEmpty = j;
+                                    }
+                                }
+                                slotsToShow = Math.min(inv.size(), lastNonEmpty + 2);
+                                slotsToShowMap.put(container, slotsToShow);
+                                System.out.println("EAP Debug: Container " + (container != null ? container.getServerId() : "null") + " lastNonEmpty=" + lastNonEmpty + " slotsToShow=" + slotsToShow);
+                            }
 
-                        newIndex++;
+                            int offset = accessor.getOffset();
+                            if (offset < slotsToShow) {
+                                int availableSlots = Math.min(accessor.getSlots(), slotsToShow - offset);
+                                int currentRowIndex = newRows.size();
+                                
+                                if (availableSlots == accessor.getSlots()) {
+                                    newRows.add(row);
+                                } else {
+                                    Object newSlotsRow = eap$createSlotsRow(container, offset, availableSlots);
+                                    if (newSlotsRow != null) {
+                                        newRows.add(newSlotsRow);
+                                    } else {
+                                        System.out.println("EAP Debug: Failed to create SlotsRow instance for offset=" + offset);
+                                    }
+                                }
+                                
+                                // 如果 showSlots 为真，HighlightButton 应位于 SlotsRow 位置（通常是第一个）
+                                if (highlightBtns.containsKey(i)) {
+                                    newHighlightBtns.put(currentRowIndex, highlightBtns.get(i));
+                                }
+                            }
+                        } catch (Throwable t) {
+                            System.out.println("EAP Debug: Error processing SlotsRow at index " + i + ": " + t);
+                            t.printStackTrace();
+                        }
+                    } else {
+                        // Unrecognized row type, keep it just in case? Or maybe it's the superclass row type?
+                        System.out.println("EAP Debug: Skipping unknown row type: " + fullClassName);
+                        newRows.add(row);
                     }
-                    // SlotsRow：跳过，不保留
                 }
 
-                // 移除多余行
-                while (rows.size() > newIndex) {
-                    rows.remove(rows.size() - 1);
-                }
-
-                // 更新 highlightBtns：清理旧 map 并复用 new map
+                System.out.println("EAP Debug: New rows size: " + newRows.size());
+                typedRows.clear();
+                typedRows.addAll(newRows);
                 highlightBtns.clear();
                 highlightBtns.putAll(newHighlightBtns);
-
-                // 强制刷新滚动条（一次）
                 this.resetScrollbar();
-            } catch (Exception ignored) {
+            } catch (Throwable e) {
+                System.out.println("EAP Debug: Critical error during refreshList: " + e);
+                e.printStackTrace();
             }
         }
         // 标记按钮需要重建（因为 rows 结构可能已改变）
         this.buttonsDirty = true;
+    }
+
+    /**
+     * 通过反射创建 AE2 的 SlotsRow record
+     */
+    @Unique
+    private Object eap$createSlotsRow(PatternContainerRecord container, int offset, int slots) {
+        try {
+            Class<?> slotsRowCls = Class.forName("com.glodblock.github.extendedae.client.gui.GuiExPatternTerminal$SlotsRow");
+            Constructor<?> ctor = slotsRowCls.getDeclaredConstructors()[0];
+            ctor.setAccessible(true);
+            return ctor.newInstance(container, offset, slots);
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     /**
