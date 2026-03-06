@@ -1,0 +1,24 @@
+{
+  "mappings": {
+    "com/glodblock/github/extendedae/mixins/MixinScreen": {
+      "Lnet/minecraft/CrashReport;forThrowable(Ljava/lang/Throwable;Ljava/lang/String;)Lnet/minecraft/CrashReport;": "Lnet/minecraft/CrashReport;m_127521_(Ljava/lang/Throwable;Ljava/lang/String;)Lnet/minecraft/CrashReport;",
+      "wrapScreenError": "Lnet/minecraft/client/gui/screens/Screen;m_96579_(Ljava/lang/Runnable;Ljava/lang/String;Ljava/lang/String;)V"
+    },
+    "com/glodblock/github/extendedae/mixins/MixinAbstractContainerScreen": {
+      "net/minecraft/client/gui/GuiGraphics.renderItemDecorations(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;IILjava/lang/String;)V": "Lnet/minecraft/client/gui/GuiGraphics;m_280302_(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;IILjava/lang/String;)V",
+      "renderSlot": "Lnet/minecraft/client/gui/screens/inventory/AbstractContainerScreen;m_280092_(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/world/inventory/Slot;)V"
+    }
+  },
+  "data": {
+    "searge": {
+      "com/glodblock/github/extendedae/mixins/MixinScreen": {
+        "Lnet/minecraft/CrashReport;forThrowable(Ljava/lang/Throwable;Ljava/lang/String;)Lnet/minecraft/CrashReport;": "Lnet/minecraft/CrashReport;m_127521_(Ljava/lang/Throwable;Ljava/lang/String;)Lnet/minecraft/CrashReport;",
+        "wrapScreenError": "Lnet/minecraft/client/gui/screens/Screen;m_96579_(Ljava/lang/Runnable;Ljava/lang/String;Ljava/lang/String;)V"
+      },
+      "com/glodblock/github/extendedae/mixins/MixinAbstractContainerScreen": {
+        "net/minecraft/client/gui/GuiGraphics.renderItemDecorations(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;IILjava/lang/String;)V": "Lnet/minecraft/client/gui/GuiGraphics;m_280302_(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;IILjava/lang/String;)V",
+        "renderSlot": "Lnet/minecraft/client/gui/screens/inventory/AbstractContainerScreen;m_280092_(Lnet/minecraft/client/gui/GuiGraphics;Lnet/minecraft/world/inventory/Slot;)V"
+      }
+    }
+  }
+}

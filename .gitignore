@@ -120,3 +120,10 @@ libs/*
 /src/generated/resources/.cache
 othermods
 /doc/
+
+# Extracted jar contents (accidentally created by jar extraction in working dir)
+/META-INF/
+/assets/
+/com/
+/data/
+/logo.png

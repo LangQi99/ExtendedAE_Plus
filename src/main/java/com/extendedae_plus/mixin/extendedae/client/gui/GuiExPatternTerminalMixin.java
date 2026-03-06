@@ -5,6 +5,7 @@ import appeng.api.implementations.blockentities.PatternContainerGroup;
 import appeng.client.gui.AEBaseScreen;
 import appeng.client.gui.Icon;
 import appeng.client.gui.me.patternaccess.PatternContainerRecord;
+import appeng.client.gui.me.patternaccess.PatternSlot;
 import appeng.client.gui.style.ScreenStyle;
 import appeng.client.gui.widgets.AETextField;
 import appeng.client.gui.widgets.IconButton;
@@ -14,6 +15,7 @@ import com.extendedae_plus.api.upload.IGuiExPatternTerminalUploadAccessor;
 import com.extendedae_plus.config.ModConfig;
 import com.extendedae_plus.init.ModNetwork;
 import com.extendedae_plus.mixin.extendedae.accessor.GuiExPatternTerminalGroupHeaderRowAccessor;
+import com.extendedae_plus.mixin.extendedae.accessor.GuiExPatternTerminalSlotsRowAccessor;
 import com.extendedae_plus.network.provider.OpenProviderUiC2SPacket;
 import com.extendedae_plus.util.GuiUtil;
 import com.glodblock.github.extendedae.client.button.HighlightButton;
@@ -40,6 +42,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -71,6 +74,8 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     @Unique private final Map<Integer, Button> openUIButtons = new HashMap<>();
     @Unique private IconButton eap$toggleSlotsButton;
     @Unique private boolean eap$showSlots = false; // 默认由配置初始化
+    @Unique private IconButton eap$compactSlotsButton;
+    @Unique private boolean eap$compactSlots = false; // 合并空位模式
     @Unique private long currentlyChoicePatterProvider = -1; // 当前选择的样板供应器ID
 
     // 按钮更新/缓存状态，避免每帧重建
@@ -204,6 +209,25 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
 
         // 添加到左侧工具栏
         this.addToLeftToolbar(this.eap$toggleSlotsButton);
+
+        // 创建合并空位按钮
+        this.eap$compactSlotsButton = new IconButton((b) -> {
+            this.eap$compactSlots = !this.eap$compactSlots;
+            this.buttonsDirty = true;
+            this.refreshList();
+            this.resetScrollbar();
+        }) {
+            @Override
+            protected Icon getIcon() {
+                return eap$compactSlots ? Icon.ARROW_UP : Icon.ARROW_DOWN;
+            }
+        };
+
+        // 设置合并空位按钮提示文本
+        this.eap$compactSlotsButton.setTooltip(Tooltip.create(Component.translatable("gui.expatternprovider.compact_slots")));
+
+        // 添加到左侧工具栏
+        this.addToLeftToolbar(this.eap$compactSlotsButton);
     }
 
     @Inject(method = "refreshList", at = @At("HEAD"), remap = false)
@@ -214,6 +238,12 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                     this.eap$showSlots ? "gui.expatternprovider.hide_slots" : "gui.expatternprovider.show_slots"
             )));
         }
+        // 更新合并空位按钮 tooltip 文本
+        if (this.eap$compactSlotsButton != null) {
+            this.eap$compactSlotsButton.setTooltip(Tooltip.create(Component.translatable(
+                    this.eap$compactSlots ? "gui.expatternprovider.expand_slots" : "gui.expatternprovider.compact_slots"
+            )));
+        }
         // 清理并标记需要重建 UI 按钮（但不在此处做重建）
         this.openUIButtons.values().forEach(this::removeWidget);
         this.openUIButtons.clear();
@@ -221,8 +251,9 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     }
 
     /**
-     * refreshList 完成后，如果不显示 slots，则在 rows 上做“压缩”并尽量复用 highlightBtns 映射。
+     * refreshList 完成后，如果不显示 slots，则在 rows 上做"压缩"并尽量复用 highlightBtns 映射。
      * 这个实现会尽量复用已有 highlightBtns 的实例，避免无谓的对象重建。
+     * 如果启用了合并空位模式，则对每个供应器组的尾部空行进行压缩，只保留一个空行。
      */
     @Inject(method = "refreshList", at = @At("TAIL"), remap = false)
     private void onRefreshListEnd(CallbackInfo ci) {
@@ -266,9 +297,134 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                 this.resetScrollbar();
             } catch (Exception ignored) {
             }
+        } else if (this.eap$compactSlots) {
+            eap$applyCompactSlots();
         }
         // 标记按钮需要重建（因为 rows 结构可能已改变）
         this.buttonsDirty = true;
+    }
+
+    /**
+     * 合并空位逻辑：对每个供应器组，找到最后一个非空的 SlotsRow，
+     * 在其后只保留一个空行（供新样板插入），移除多余的空行。
+     * 当该空行被填满时，refreshList 会自动重新评估，动态展开下一个空行。
+     */
+    @Unique
+    private void eap$applyCompactSlots() {
+        try {
+            // 构建 serverId -> 有序 PatternSlot 列表的映射（用于判断行是否为空）
+            Map<Long, List<Slot>> containerSlotsMap = new HashMap<>();
+            for (Slot slot : menu.slots) {
+                if (slot instanceof PatternSlot ps) {
+                    long serverId = ps.getMachineInv().getServerId();
+                    containerSlotsMap.computeIfAbsent(serverId, k -> new ArrayList<>()).add(slot);
+                }
+            }
+
+            @SuppressWarnings("unchecked")
+            ArrayList<Object> typedRows = (ArrayList<Object>) rows;
+
+            ArrayList<Object> newRows = new ArrayList<>();
+            HashMap<Integer, HighlightButton> newHighlightBtns = new HashMap<>();
+
+            int i = 0;
+            while (i < typedRows.size()) {
+                Object row = typedRows.get(i);
+                String className = row.getClass().getSimpleName();
+
+                if (className.equals("GroupHeaderRow")) {
+                    int groupHeaderOrigIndex = i;
+                    int groupHeaderNewIndex = newRows.size();
+                    newRows.add(row);
+
+                    // 迁移 highlightBtns：原本关联在 GroupHeaderRow 后第一个 SlotsRow 处
+                    if (highlightBtns.containsKey(groupHeaderOrigIndex + 1)) {
+                        newHighlightBtns.put(groupHeaderNewIndex + 1,
+                                highlightBtns.get(groupHeaderOrigIndex + 1));
+                    }
+
+                    i++;
+
+                    // 收集该组所有 SlotsRow
+                    List<Object> groupSlotRows = new ArrayList<>();
+                    while (i < typedRows.size()
+                            && typedRows.get(i).getClass().getSimpleName().equals("SlotsRow")) {
+                        groupSlotRows.add(typedRows.get(i));
+                        i++;
+                    }
+
+                    if (groupSlotRows.isEmpty()) {
+                        continue;
+                    }
+
+                    // 找出最后一个含有非空物品的 SlotsRow 索引
+                    int lastNonEmptyIdx = -1;
+                    for (int j = 0; j < groupSlotRows.size(); j++) {
+                        if (!eap$isSlotsRowEmpty(groupSlotRows.get(j), containerSlotsMap)) {
+                            lastNonEmptyIdx = j;
+                        }
+                    }
+
+                    // 保留规则：
+                    //   保留全部非空行（0..lastNonEmptyIdx）+ 恰好 1 个空行（lastNonEmptyIdx+1）
+                    //   若全为空行（lastNonEmptyIdx==-1），保留第 1 行即可
+                    int keepCount;
+                    if (lastNonEmptyIdx == -1) {
+                        keepCount = 1; // 全空：只保留一个空行
+                    } else {
+                        // 非空行 + 1 个紧随其后的空行（如果还有的话）
+                        keepCount = Math.min(lastNonEmptyIdx + 2, groupSlotRows.size());
+                    }
+
+                    newRows.addAll(groupSlotRows.subList(0, keepCount));
+
+                } else {
+                    // 不应出现（SlotsRow 前无 GroupHeaderRow），原样保留
+                    newRows.add(row);
+                    i++;
+                }
+            }
+
+            // 原地替换 rows 内容
+            typedRows.clear();
+            typedRows.addAll(newRows);
+
+            // 更新 highlightBtns
+            highlightBtns.clear();
+            highlightBtns.putAll(newHighlightBtns);
+
+            this.resetScrollbar();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /**
+     * 判断一个 SlotsRow 是否全为空（该行展示的所有槽位均无样板）。
+     *
+     * @param slotsRow          SlotsRow 对象（通过 GuiExPatternTerminalSlotsRowAccessor 访问）
+     * @param containerSlotsMap serverId -> 有序 PatternSlot 列表
+     * @return true 若该行所有槽位均为空
+     */
+    @Unique
+    private boolean eap$isSlotsRowEmpty(Object slotsRow, Map<Long, List<Slot>> containerSlotsMap) {
+        try {
+            GuiExPatternTerminalSlotsRowAccessor accessor = (GuiExPatternTerminalSlotsRowAccessor) slotsRow;
+            PatternContainerRecord container = accessor.eap$container();
+            int offset = accessor.eap$offset();
+            int slots = accessor.eap$slots();
+
+            long serverId = container.getServerId();
+            List<Slot> slotList = containerSlotsMap.get(serverId);
+            if (slotList == null) return true;
+
+            int end = Math.min(offset + slots, slotList.size());
+            for (int i = offset; i < end; i++) {
+                if (!slotList.get(i).getItem().isEmpty()) return false;
+            }
+            return true;
+        } catch (Exception e) {
+            return false; // 保守处理：无法判断时假设非空，不压缩
+        }
     }
 
     /**
