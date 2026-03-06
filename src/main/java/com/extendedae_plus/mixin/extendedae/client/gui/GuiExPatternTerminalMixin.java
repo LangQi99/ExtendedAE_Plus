@@ -73,8 +73,12 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     @Unique private final Map<Integer, Button> openUIButtons = new HashMap<>();
     @Unique private IconButton eap$toggleSlotsButton;
     @Unique private IconButton eap$mergeEmptySlotsButton;
-    @Unique private boolean eap$showSlots = false; // 默认由配置初始化
-    @Unique private boolean eap$mergeEmptySlots = false;
+
+    @Unique private static Boolean eap$lastShowSlotsState = null;
+    @Unique private static Boolean eap$lastMergeEmptySlotsState = null;
+
+    @Unique private boolean eap$showSlots = true;
+    @Unique private boolean eap$mergeEmptySlots = true;
     @Unique private long currentlyChoicePatterProvider = -1; // 当前选择的样板供应器ID
 
     // 按钮更新/缓存状态，避免每帧重建
@@ -187,13 +191,20 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     /* ----- 构造注入：创建切换按钮（只设置状态并触发一次 refresh） ----- */
     @Inject(method = "<init>", at = @At("TAIL"), remap = false)
     private void injectConstructor(CallbackInfo ci) {
-        // 初始化默认显示状态
-        this.eap$showSlots = ModConfig.INSTANCE.patternTerminalShowSlotsDefault;
-        this.eap$mergeEmptySlots = ModConfig.INSTANCE.patternTerminalMergeEmptySlotsDefault;
+        // 初始化默认显示状态（如果是第一次打开，从 Config 读取，否则使用上次的状态）
+        if (eap$lastShowSlotsState == null) {
+            eap$lastShowSlotsState = ModConfig.INSTANCE.patternTerminalShowSlotsDefault;
+        }
+        if (eap$lastMergeEmptySlotsState == null) {
+            eap$lastMergeEmptySlotsState = ModConfig.INSTANCE.patternTerminalMergeEmptySlotsDefault;
+        }
+        this.eap$showSlots = eap$lastShowSlotsState;
+        this.eap$mergeEmptySlots = eap$lastMergeEmptySlotsState;
 
         // 创建切换槽位显示的按钮（只切换状态并触发一次 refresh）
         this.eap$toggleSlotsButton = new IconButton((b) -> {
             this.eap$showSlots = !this.eap$showSlots;
+            eap$lastShowSlotsState = this.eap$showSlots;
             // 标记需要更新按钮与高亮映射
             this.buttonsDirty = true;
             this.refreshList();
@@ -208,6 +219,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
         // 创建合并空项按钮（只切换状态并触发一次 refresh）
         this.eap$mergeEmptySlotsButton = new IconButton((b) -> {
             this.eap$mergeEmptySlots = !this.eap$mergeEmptySlots;
+            eap$lastMergeEmptySlotsState = this.eap$mergeEmptySlots;
             // 标记需要更新按钮与高亮映射
             this.buttonsDirty = true;
             this.refreshList();
@@ -215,7 +227,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
         }) {
             @Override
             protected Icon getIcon() {
-                return eap$mergeEmptySlots ? Icon.ARROW_DOWN : Icon.VIEW_MODE_ALL;
+                return eap$mergeEmptySlots ? Icon.PATTERN_TERMINAL_NOT_FULL : Icon.PATTERN_TERMINAL_ALL;
             }
         };
 
