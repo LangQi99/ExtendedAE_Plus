@@ -215,7 +215,7 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
         }) {
             @Override
             protected Icon getIcon() {
-                return eap$mergeEmptySlots ? Icon.PATTERN_TERMINAL_NOT_FULL : Icon.PATTERN_TERMINAL_ALL;
+                return eap$mergeEmptySlots ? Icon.ARROW_DOWN : Icon.VIEW_MODE_ALL;
             }
         };
 
@@ -241,8 +241,6 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                     this.eap$mergeEmptySlots ? "gui.expatternprovider.unmerge_empty_slots" : "gui.expatternprovider.merge_empty_slots"
             );
             this.eap$mergeEmptySlotsButton.setTooltip(Tooltip.create(tooltip));
-            // Log translation test
-            System.out.println("EAP Debug: Merge Button Tooltip: " + tooltip.getString() + " (Key: " + ((net.minecraft.network.chat.contents.TranslatableContents)tooltip.getContents()).getKey() + ")");
         }
         // 清理并标记需要重建 UI 按钮（但不在此处做重建）
         this.openUIButtons.values().forEach(this::removeWidget);
@@ -256,7 +254,6 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
      */
     @Inject(method = "refreshList", at = @At("TAIL"), remap = false)
     private void onRefreshListEnd(CallbackInfo ci) {
-        System.out.println("EAP Debug: onRefreshListEnd - showSlots=" + eap$showSlots + ", merge=" + eap$mergeEmptySlots);
         if (!this.eap$showSlots || this.eap$mergeEmptySlots) {
             try {
                 HashMap<Integer, HighlightButton> newHighlightBtns = new HashMap<>();
@@ -265,7 +262,6 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                 
                 @SuppressWarnings("unchecked")
                 ArrayList<Object> typedRows = (ArrayList<Object>) rows;
-                System.out.println("EAP Debug: Initial rows size: " + typedRows.size());
 
                 for (int i = 0; i < typedRows.size(); i++) {
                     Object row = typedRows.get(i);
@@ -298,7 +294,6 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                                 }
                                 slotsToShow = Math.min(inv.size(), lastNonEmpty + 2);
                                 this.eap$slotsToShowMap.put(serverId, slotsToShow);
-                                System.out.println("EAP Debug: Container " + (container != null ? container.getServerId() : "null") + " lastNonEmpty=" + lastNonEmpty + " slotsToShow=" + slotsToShow);
                             }
 
                             int offset = accessor.getOffset();
@@ -312,8 +307,6 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                                     Object newSlotsRow = eap$createSlotsRow(container, offset, availableSlots);
                                     if (newSlotsRow != null) {
                                         newRows.add(newSlotsRow);
-                                    } else {
-                                        System.out.println("EAP Debug: Failed to create SlotsRow instance for offset=" + offset);
                                     }
                                 }
                                 
@@ -323,24 +316,20 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                                 }
                             }
                         } catch (Throwable t) {
-                            System.out.println("EAP Debug: Error processing SlotsRow at index " + i + ": " + t);
                             t.printStackTrace();
                         }
                     } else {
                         // Unrecognized row type, keep it just in case? Or maybe it's the superclass row type?
-                        System.out.println("EAP Debug: Skipping unknown row type: " + fullClassName);
                         newRows.add(row);
                     }
                 }
 
-                System.out.println("EAP Debug: New rows size: " + newRows.size());
                 typedRows.clear();
                 typedRows.addAll(newRows);
                 highlightBtns.clear();
                 highlightBtns.putAll(newHighlightBtns);
                 this.resetScrollbar();
             } catch (Throwable e) {
-                System.out.println("EAP Debug: Critical error during refreshList: " + e);
                 e.printStackTrace();
             }
         }
