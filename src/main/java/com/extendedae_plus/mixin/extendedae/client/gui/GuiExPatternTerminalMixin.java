@@ -14,6 +14,7 @@ import com.extendedae_plus.api.upload.IGuiExPatternTerminalUploadAccessor;
 import com.extendedae_plus.config.ModConfig;
 import com.extendedae_plus.init.ModNetwork;
 import com.extendedae_plus.mixin.extendedae.accessor.GuiExPatternTerminalGroupHeaderRowAccessor;
+import com.extendedae_plus.mixin.extendedae.accessor.GuiExPatternTerminalSlotsRowAccessor;
 import com.extendedae_plus.network.provider.OpenProviderUiC2SPacket;
 import com.extendedae_plus.util.GuiUtil;
 import com.glodblock.github.extendedae.client.button.HighlightButton;
@@ -38,8 +39,10 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
+import java.lang.reflect.Constructor;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -71,6 +74,9 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
     @Unique private final Map<Integer, Button> openUIButtons = new HashMap<>();
     @Unique private IconButton eap$toggleSlotsButton;
     @Unique private boolean eap$showSlots = false; // 默认由配置初始化
+    @Unique private IconButton eap$compactSlotsButton;
+    @Unique private boolean eap$compactSlots = false; // 合并空位模式（默认关闭）
+    @Unique private Constructor<?> eap$slotsRowCtor = null; // 缓存 SlotsRow 构造器（反射）
     @Unique private long currentlyChoicePatterProvider = -1; // 当前选择的样板供应器ID
 
     // 按钮更新/缓存状态，避免每帧重建
@@ -204,6 +210,24 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
 
         // 添加到左侧工具栏
         this.addToLeftToolbar(this.eap$toggleSlotsButton);
+
+        // 创建合并空位按钮
+        this.eap$compactSlotsButton = new IconButton((b) -> {
+            this.eap$compactSlots = !this.eap$compactSlots;
+            this.buttonsDirty = true;
+            this.refreshList();
+            this.resetScrollbar();
+        }) {
+            @Override
+            protected Icon getIcon() {
+                return eap$compactSlots ? Icon.INSCRIBER_COMBINED_SIDES : Icon.INSCRIBER_SEPARATE_SIDES;
+            }
+        };
+
+        this.eap$compactSlotsButton.setTooltip(Tooltip.create(Component.translatable("gui.expatternprovider.compact_slots_enable")));
+
+        // 添加到左侧工具栏
+        this.addToLeftToolbar(this.eap$compactSlotsButton);
     }
 
     @Inject(method = "refreshList", at = @At("HEAD"), remap = false)
@@ -212,6 +236,12 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
         if (this.eap$toggleSlotsButton != null) {
             this.eap$toggleSlotsButton.setTooltip(Tooltip.create(Component.translatable(
                     this.eap$showSlots ? "gui.expatternprovider.hide_slots" : "gui.expatternprovider.show_slots"
+            )));
+        }
+        // 更新合并空位按钮 tooltip 文本
+        if (this.eap$compactSlotsButton != null) {
+            this.eap$compactSlotsButton.setTooltip(Tooltip.create(Component.translatable(
+                    this.eap$compactSlots ? "gui.expatternprovider.compact_slots_disable" : "gui.expatternprovider.compact_slots_enable"
             )));
         }
         // 清理并标记需要重建 UI 按钮（但不在此处做重建）
@@ -266,9 +296,123 @@ public abstract class GuiExPatternTerminalMixin extends AEBaseScreen<AEBaseMenu>
                 this.resetScrollbar();
             } catch (Exception ignored) {
             }
+        } else if (this.eap$compactSlots) {
+            // 合并空位：对每个供应器的尾部空槽进行压缩，只保留一个空槽
+            eap$applyCompactSlots();
         }
         // 标记按钮需要重建（因为 rows 结构可能已改变）
         this.buttonsDirty = true;
+    }
+
+    /**
+     * 合并空位逻辑：遍历 rows，对每个供应器的 SlotsRow 序列，找到最后一个非空槽，
+     * 保留该槽之后的一个空槽（让玩家可以填入），移除其余尾部空槽行。
+     */
+    @Unique
+    private void eap$applyCompactSlots() {
+        if (rows.isEmpty()) return;
+        try {
+            // 懒加载缓存 SlotsRow 构造器
+            if (eap$slotsRowCtor == null) {
+                for (Object row : rows) {
+                    if (row.getClass().getSimpleName().equals("SlotsRow")) {
+                        Constructor<?>[] ctors = row.getClass().getDeclaredConstructors();
+                        if (ctors.length > 0) {
+                            eap$slotsRowCtor = ctors[0];
+                            eap$slotsRowCtor.setAccessible(true);
+                        }
+                        break;
+                    }
+                }
+            }
+            if (eap$slotsRowCtor == null) return;
+
+            List<Object> newRows = new ArrayList<>();
+            HashMap<Integer, HighlightButton> newHighlightBtns = new HashMap<>();
+
+            int i = 0;
+            while (i < rows.size()) {
+                Object row = rows.get(i);
+                String className = row.getClass().getSimpleName();
+
+                if (!className.equals("SlotsRow")) {
+                    newRows.add(row);
+                    i++;
+                    continue;
+                }
+
+                // 收集该供应器的所有连续 SlotsRow
+                GuiExPatternTerminalSlotsRowAccessor firstAcc = (GuiExPatternTerminalSlotsRowAccessor) row;
+                PatternContainerRecord container = firstAcc.eap$getContainer();
+                int origFirstSlotsRowIdx = i;
+
+                List<Object> containerRows = new ArrayList<>();
+                while (i < rows.size() && rows.get(i).getClass().getSimpleName().equals("SlotsRow")) {
+                    GuiExPatternTerminalSlotsRowAccessor acc = (GuiExPatternTerminalSlotsRowAccessor) rows.get(i);
+                    if (acc.eap$getContainer() != container) break;
+                    containerRows.add(rows.get(i));
+                    i++;
+                }
+
+                // 找到该供应器中最后一个非空槽的绝对索引
+                int lastFilledSlot = -1;
+                for (Object r : containerRows) {
+                    GuiExPatternTerminalSlotsRowAccessor acc = (GuiExPatternTerminalSlotsRowAccessor) r;
+                    int offset = acc.eap$getOffset();
+                    int slots = acc.eap$getSlots();
+                    for (int s = 0; s < slots; s++) {
+                        if (!container.getInventory().getStackInSlot(offset + s).isEmpty()) {
+                            lastFilledSlot = offset + s;
+                        }
+                    }
+                }
+
+                // targetLastSlot：最后填充槽之后的第一个空槽（至少为槽 0）
+                int targetLastSlot = lastFilledSlot + 1;
+
+                int firstSlotsRowNewIdx = newRows.size();
+                for (Object r : containerRows) {
+                    GuiExPatternTerminalSlotsRowAccessor acc = (GuiExPatternTerminalSlotsRowAccessor) r;
+                    int offset = acc.eap$getOffset();
+                    int slots = acc.eap$getSlots();
+
+                    // 该行完全超出目标范围，跳过
+                    if (offset > targetLastSlot) continue;
+
+                    int newSlots = slots;
+                    if (offset + slots - 1 > targetLastSlot) {
+                        newSlots = targetLastSlot - offset + 1;
+                    }
+                    if (newSlots <= 0) continue;
+
+                    if (newSlots == slots) {
+                        newRows.add(r);
+                    } else {
+                        // 通过反射创建截断后的 SlotsRow
+                        Object trimmedRow = eap$slotsRowCtor.newInstance(container, offset, newSlots);
+                        newRows.add(trimmedRow);
+                    }
+                }
+
+                // 重映射高亮按钮：从原来的第一个 SlotsRow 索引映射到新的索引
+                if (highlightBtns.containsKey(origFirstSlotsRowIdx)) {
+                    newHighlightBtns.put(firstSlotsRowNewIdx, highlightBtns.get(origFirstSlotsRowIdx));
+                }
+            }
+
+            // 替换 rows 内容
+            @SuppressWarnings("unchecked")
+            ArrayList<Object> typedRows = (ArrayList<Object>) rows;
+            typedRows.clear();
+            typedRows.addAll(newRows);
+
+            // 更新高亮按钮映射
+            highlightBtns.clear();
+            highlightBtns.putAll(newHighlightBtns);
+
+            this.resetScrollbar();
+        } catch (Exception ignored) {
+        }
     }
 
     /**
