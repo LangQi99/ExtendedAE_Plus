@@ -120,3 +120,8 @@ libs/*
 /src/generated/resources/.cache
 othermods
 /doc/
+
+# Extracted class files (from jar inspection)
+com/
+*.class
+
