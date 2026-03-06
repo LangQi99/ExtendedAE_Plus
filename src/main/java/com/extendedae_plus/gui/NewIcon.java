@@ -16,6 +16,7 @@ public class NewIcon {
     public static final Blitter DIVIDE5;
     public static final Blitter MULTIPLY10;
     public static final Blitter DIVIDE10;
+    public static final Blitter COMPACT_EMPTY_SLOTS;
 
     static {
         MULTIPLY2 = Blitter.texture(TEXTURE, 64, 64).src(32, 0, 16, 16);
@@ -24,6 +25,6 @@ public class NewIcon {
         DIVIDE5 = Blitter.texture(TEXTURE, 64, 64).src(16, 0, 16, 16);
         MULTIPLY10 = Blitter.texture(TEXTURE, 64, 64).src(0, 16, 16, 16);
         DIVIDE10 = Blitter.texture(TEXTURE, 64, 64).src(16, 16, 16, 16);
-
+        COMPACT_EMPTY_SLOTS = Blitter.texture(TEXTURE, 64, 64).src(32, 16, 16, 16);
     }
 }
