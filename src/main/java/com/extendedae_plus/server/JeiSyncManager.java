@@ -61,6 +61,18 @@ public class JeiSyncManager {
         KeyCounter currentStacks = storage.getAvailableStacks();
         Set<AEKey> currentCraftables = craftingService.getCraftables(key -> true);
 
+        // Build authoritative current state: amount snapshot + union of all present keys.
+        // A key is "present" if it has stock (>0) OR is craftable. getAvailableStacks()
+        // never holds zero-amount entries, so a fully-extracted-but-still-craftable item
+        // survives only via currentCraftables (with amount 0) -- it must NOT be treated as
+        // removed, and its amount drop must still be diffed.
+        Map<AEKey, Long> currentAmounts = new HashMap<>();
+        for (var entry : currentStacks) {
+            currentAmounts.put(entry.getKey(), entry.getLongValue());
+        }
+        Set<AEKey> currentKeys = new HashSet<>(currentAmounts.keySet());
+        currentKeys.addAll(currentCraftables);
+
         boolean fullUpdate = !state.wasConnected;
         List<SyncNetworkInventoryS2CPacket.Entry> entries = new ArrayList<>();
 
@@ -70,9 +82,8 @@ public class JeiSyncManager {
             state.previousCraftables.clear();
             state.nextSerial = 1;
 
-            for (var entry : currentStacks) {
-                AEKey key = entry.getKey();
-                long amount = entry.getLongValue();
+            for (AEKey key : currentKeys) {
+                long amount = currentAmounts.getOrDefault(key, 0L);
                 boolean craftable = currentCraftables.contains(key);
                 long serial = state.nextSerial++;
                 state.serialMap.put(key, serial);
@@ -80,29 +91,14 @@ public class JeiSyncManager {
                 if (craftable) state.previousCraftables.add(key);
                 entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, key, amount, craftable));
             }
-            // craftable-only items (not in storage)
-            for (AEKey key : currentCraftables) {
-                if (!state.serialMap.containsKey(key)) {
-                    long serial = state.nextSerial++;
-                    state.serialMap.put(key, serial);
-                    state.previousCraftables.add(key);
-                    entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, key, 0, true));
-                }
-            }
         } else {
-            // Incremental diff
-            Set<AEKey> seen = new HashSet<>();
-
-            for (var entry : currentStacks) {
-                AEKey key = entry.getKey();
-                long amount = entry.getLongValue();
+            // Additions + changes: iterate the full union so amount->0 (still craftable)
+            // transitions are diffed instead of being silently dropped.
+            for (AEKey key : currentKeys) {
+                long amount = currentAmounts.getOrDefault(key, 0L);
                 boolean craftable = currentCraftables.contains(key);
-                seen.add(key);
 
                 Long serial = state.serialMap.get(key);
-                Long prevAmount = state.previousAmounts.get(key);
-                boolean prevCraftable = state.previousCraftables.contains(key);
-
                 if (serial == null) {
                     // new item
                     serial = state.nextSerial++;
@@ -110,39 +106,25 @@ public class JeiSyncManager {
                     state.previousAmounts.put(key, amount);
                     if (craftable) state.previousCraftables.add(key);
                     entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, key, amount, craftable));
-                } else if (prevAmount == null || prevAmount != amount || prevCraftable != craftable) {
-                    // changed amount or craftable status
-                    state.previousAmounts.put(key, amount);
-                    if (craftable) state.previousCraftables.add(key);
-                    else state.previousCraftables.remove(key);
-                    entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, null, amount, craftable));
-                }
-            }
-
-            // craftable-only items not in storage
-            for (AEKey key : currentCraftables) {
-                if (!seen.contains(key)) {
-                    seen.add(key);
-                    Long serial = state.serialMap.get(key);
+                } else {
+                    long prevAmount = state.previousAmounts.getOrDefault(key, 0L);
                     boolean prevCraftable = state.previousCraftables.contains(key);
-                    if (serial == null) {
-                        serial = state.nextSerial++;
-                        state.serialMap.put(key, serial);
-                        state.previousCraftables.add(key);
-                        entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, key, 0, true));
-                    } else if (!prevCraftable) {
-                        state.previousCraftables.add(key);
-                        entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, null, 0, true));
+                    if (prevAmount != amount || prevCraftable != craftable) {
+                        // changed amount or craftable status
+                        state.previousAmounts.put(key, amount);
+                        if (craftable) state.previousCraftables.add(key);
+                        else state.previousCraftables.remove(key);
+                        entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, null, amount, craftable));
                     }
                 }
             }
 
-            // removed items
+            // removed items: in serialMap but no longer present (no stock and not craftable)
             Iterator<Map.Entry<AEKey, Long>> it = state.serialMap.entrySet().iterator();
             while (it.hasNext()) {
                 Map.Entry<AEKey, Long> e = it.next();
                 AEKey key = e.getKey();
-                if (!seen.contains(key)) {
+                if (!currentKeys.contains(key)) {
                     long serial = e.getValue();
                     entries.add(new SyncNetworkInventoryS2CPacket.Entry(serial, null, 0, false));
                     it.remove();

@@ -1,5 +1,33 @@
 # ExtendedAE Plus 开发进度
 
+## 2026-08-03 修复：可合成物品取空后 JEI 显示不更新
+
+### 问题现象
+
+从 AE 终端本身取出物品后，JEI 叠加层不刷新，且后续更新全部错乱。
+
+### 根因
+
+`JeiSyncManager` 增量 diff 逻辑漏掉了「有存量 + 可合成」物品被取空到 0 的场景：
+- `getAvailableStacks()` 不含 0 存量物品，取空后该 key 掉出 `currentStacks`
+- 它仍在 `currentCraftables` 里，但 craftable 状态没翻转，旧的 craftable 循环只在状态变化时发包 → 数量变化未推送
+- 删除循环因 `seen` 含该 key（还可合成）而不删除
+- 结果：数量变化丢失，且 `previousAmounts` 基准停留在旧值被永久污染，导致后续 diff 全乱
+
+### 修复
+
+`src/main/java/com/extendedae_plus/server/JeiSyncManager.java`：
+- 重写 diff，改为以 `currentStacks ∪ currentCraftables ∪ 旧 serialMap` 的并集为权威集合
+- 对每个 key 统一计算 `(amount, craftable)` 再与上次比对，amount→0 的可合成物品会正确推 `(serial, 0, true)`
+- 客户端渲染成 "Craft"，基准不再污染
+- 编译验证通过（`./gradlew compileJava` BUILD SUCCESSFUL）
+
+### 遗留
+
+- 未做 in-game 端到端验证（需重新出包 + 复现取空场景）
+
+---
+
 ## 2026-07-29 环境搭建 + PRD
 
 ### 完成事项
